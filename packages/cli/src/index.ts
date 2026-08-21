@@ -13,12 +13,15 @@ import { init } from "./commands/init.js";
 import { up } from "./commands/up.js";
 import { run, dryRun } from "./commands/run.js";
 import { status, tell } from "./commands/status.js";
+import { dashboard } from "./commands/dashboard.js";
 
 const HELP = `agentfloor — run and watch a fleet of autonomous LLM agents
 
 usage:
   agentfloor init             scaffold agentfloor.config.ts + agents/
   agentfloor up               start the floor (Ctrl-C to stop)
+      --dashboard [--port N]  also serve the web console
+  agentfloor dashboard        serve the web console alone [--port N, default 4400]
   agentfloor run <agent>      execute one agent run now
   agentfloor dry-run <agent>  render the prompt + one sandboxed mock run
   agentfloor status           show agents, runs, budgets, jobs, events
@@ -32,7 +35,9 @@ async function main(): Promise<void> {
     case "init":
       return init(cwd);
     case "up":
-      return up(cwd);
+      return up(cwd, args);
+    case "dashboard":
+      return dashboard(cwd, args);
     case "run":
       return run(cwd, args[0]);
     case "dry-run":

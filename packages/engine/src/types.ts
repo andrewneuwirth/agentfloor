@@ -123,6 +123,13 @@ export interface WakeRow {
   createdAt: string;
 }
 
+export interface AgentRunStats {
+  agent: string;
+  runs: number;
+  failed: number;
+  tokens: number;
+}
+
 // ── Budgets ──────────────────────────────────────────────────────────────────
 
 export interface BudgetRow {
@@ -159,6 +166,10 @@ export interface Store {
   runFinish(runId: string, opts: RunFinishOpts): Promise<void>;
   activeRuns(): Promise<RunRow[]>;
   recentRuns(limit?: number): Promise<RunRow[]>;
+  getRun(id: string): Promise<RunRow | null>;
+  eventsForRun(runId: string, limit?: number): Promise<EventRow[]>;
+  /** Per-agent run/token totals since an ISO timestamp (dashboards, cost views). */
+  runStatsSince(sinceIso: string): Promise<AgentRunStats[]>;
 
   // concurrency slots — crash-safe leases. A claim holds until released or
   // until `ttlSeconds` passes without a renewal (heartbeats renew).

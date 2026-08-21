@@ -88,7 +88,8 @@ export async function executeRun(deps: RunDeps, agent: AgentDef, opts: { reason?
   }
 
   // 3. open the run row (sharing the slot's id when the store supports it)
-  const task = opts.reason ?? `Running brief: ${agent.description ?? agent.name}`;
+  const what = agent.description ?? `run ${agent.name}`;
+  const task = opts.reason && opts.reason !== "scheduled" ? `${what} (${opts.reason})` : what;
   const rid =
     typeof (store as Partial<StoreWithRunStartId>).runStartWithId === "function"
       ? await (store as StoreWithRunStartId).runStartWithId(runId, agent.name, task)
@@ -99,13 +100,14 @@ export async function executeRun(deps: RunDeps, agent: AgentDef, opts: { reason?
     // 4. the work — heartbeat while the provider call is in flight
     const { system, prompt } = await buildPrompt(store, agent);
     const hbSeconds = deps.heartbeatSeconds ?? 30;
+    // heartbeats stamp liveness only (null task keeps the run's task label)
     heartbeatTimer = setInterval(() => {
-      store.heartbeat(rid, "generating", null).catch(() => {});
+      store.heartbeat(rid, null, null).catch(() => {});
       store.renewSlot(agent.name, runId).catch(() => {});
     }, hbSeconds * 1000);
     heartbeatTimer.unref?.();
 
-    await store.heartbeat(rid, "generating", 0);
+    await store.heartbeat(rid, null, 0);
     const result = await llm.generate({
       system,
       prompt,

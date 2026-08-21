@@ -13,6 +13,7 @@
 import Database from "better-sqlite3";
 import { randomUUID } from "node:crypto";
 import type {
+  AgentRunStats,
   BudgetRow,
   DirectiveRow,
   EventOpts,
@@ -218,6 +219,29 @@ export class SqliteStore implements Store {
 
   async recentRuns(limit = 20): Promise<RunRow[]> {
     return (this.db.prepare("SELECT * FROM runs ORDER BY started_at DESC LIMIT ?").all(limit) as RunDb[]).map(runFromDb);
+  }
+
+  async getRun(id: string): Promise<RunRow | null> {
+    const r = this.db.prepare("SELECT * FROM runs WHERE id = ?").get(id) as RunDb | undefined;
+    return r ? runFromDb(r) : null;
+  }
+
+  async eventsForRun(runId: string, limit = 100): Promise<EventRow[]> {
+    return (
+      this.db.prepare("SELECT * FROM events WHERE run_id = ? ORDER BY created_at LIMIT ?").all(runId, limit) as EventDb[]
+    ).map(eventFromDb);
+  }
+
+  async runStatsSince(sinceIso: string): Promise<AgentRunStats[]> {
+    return this.db
+      .prepare(
+        `SELECT agent,
+                COUNT(*) AS runs,
+                SUM(CASE WHEN status = 'failed' THEN 1 ELSE 0 END) AS failed,
+                COALESCE(SUM(tokens), 0) AS tokens
+         FROM runs WHERE started_at >= ? GROUP BY agent ORDER BY tokens DESC`,
+      )
+      .all(sinceIso) as AgentRunStats[];
   }
 
   // ── slots (TTL leases) ────────────────────────────────────────────────────

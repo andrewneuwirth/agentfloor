@@ -15,6 +15,7 @@
     "build": "tsc -b"
   },
   "dependencies": {
+    "@agentfloor/dashboard": "^0.1.0",
     "@agentfloor/engine": "^0.1.0",
     "@agentfloor/llm-claude": "^0.1.0",
     "@agentfloor/store-sqlite": "^0.1.0",

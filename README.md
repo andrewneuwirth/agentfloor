@@ -98,7 +98,8 @@ packages/
   adapters/
     store-sqlite/         zero-setup storage (one file on disk)
     llm-claude/           Anthropic API provider
-  cli/                    agentfloor init | up | run | dry-run | status | tell
+  dashboard/              the read-only web console (self-contained, no build)
+  cli/                    agentfloor init | up | run | dry-run | status | tell | dashboard
 examples/
   content-research/       a three-agent editorial desk you can run today
 ```
@@ -108,6 +109,30 @@ Postgres next) and **LLMProvider** (Claude + mock today; OpenAI/Ollama next).
 Schedulers and notifiers follow the same pattern. The config file is plain
 data — adapters are named by string, so a fleet is fully described by one
 `agentfloor.config.ts` plus a folder of markdown.
+
+## The dashboard
+
+A read-only web console over the floor — the strip board:
+
+```sh
+agentfloor up --dashboard      # floor + console in one process, or
+agentfloor dashboard           # console alone, alongside a running floor
+```
+
+Open `http://127.0.0.1:4400` (change with `--port`). Every agent is a strip:
+a live status rail (amber pulse = running, red = stalled, green = idle), the
+task it's working on right now, a ticking last-heartbeat counter, and
+today's runs and token spend. Below the board: the **live feed** (severity-
+colored events), the **run ledger** (click any run to open the reader —
+full output, timing, token usage, stats, errors), the **queue** of pending
+jobs, **budget meters**, and your open directives.
+
+It's zero-setup by design: one self-contained page, no build step, no
+frameworks, system fonts, works offline. It binds `127.0.0.1` only — it's an
+operator's local console with no auth, so don't port-forward it to the
+internet. The floor and the dashboard can run as separate processes; they
+share the store, and everything stays consistent because job claims and
+slots are atomic.
 
 ## Running unattended (overnight / on boot)
 
@@ -260,8 +285,8 @@ adapter resolves auth from the environment.
 
 ## Roadmap
 
-1. ~~Engine + CLI + SQLite + Claude adapter~~ (this release)
-2. Dashboard (read): office view, run reader, live feed, budgets
+1. ~~Engine + CLI + SQLite + Claude adapter~~
+2. ~~Dashboard (read): strip board, run reader, live feed, queue, budgets~~
 3. Dashboard (author): edit agents in the browser, dry-run before scheduling
 4. Adapter breadth: Postgres store, OpenAI/Ollama providers, a `claude-code`
    provider (run agents through a local Claude Code install so they bill a

@@ -4,12 +4,13 @@
   "type": "module",
   "workspaces": [
     "packages/engine",
+    "packages/dashboard",
     "packages/adapters/*",
     "packages/cli"
   ],
   "scripts": {
-    "build": "tsc -b packages/engine packages/adapters/store-sqlite packages/adapters/llm-claude packages/cli",
-    "clean": "tsc -b --clean packages/engine packages/adapters/store-sqlite packages/adapters/llm-claude packages/cli",
+    "build": "tsc -b packages/engine packages/dashboard packages/adapters/store-sqlite packages/adapters/llm-claude packages/cli",
+    "clean": "tsc -b --clean packages/engine packages/dashboard packages/adapters/store-sqlite packages/adapters/llm-claude packages/cli",
     "test": "node --test packages/engine/dist/test 2>/dev/null || true"
   },
   "devDependencies": {
