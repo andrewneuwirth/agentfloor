@@ -1,4 +1,5 @@
 import { basename } from "node:path";
+import { watchAgents } from "@agentfloor/engine";
 import { startDashboard } from "@agentfloor/dashboard";
 import { openFloor } from "../context.js";
 
@@ -16,12 +17,16 @@ export async function dashboard(cwd: string, args: string[]): Promise<void> {
     store: ctx.store,
     agents: ctx.agents,
     floorName: basename(ctx.configDir),
+    agentsDir: ctx.agentsDir,
     port: parsePort(args),
   });
-  console.log(`dashboard on ${handle.url} — read-only console over this fleet's store`);
+  // standalone console: pick up agent-file edits made outside the editor too
+  const unwatch = watchAgents(ctx.agentsDir, ctx.agents, () => {}, () => {});
+  console.log(`dashboard on ${handle.url} — console + agent editor over this fleet`);
   console.log("run it alongside `agentfloor up` (separate terminal or service); Ctrl-C to stop");
 
   const shutdown = async () => {
+    unwatch();
     await handle.close();
     await ctx.store.close();
     process.exit(0);

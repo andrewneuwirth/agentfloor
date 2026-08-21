@@ -9,8 +9,18 @@
  * Binds 127.0.0.1 only — there is no auth; this is an operator's local
  * console, not a hosted service.
  */
-import { createServer, type Server } from "node:http";
-import type { AgentDef, RunRow, Store } from "@agentfloor/engine";
+import { createServer, type IncomingMessage, type Server } from "node:http";
+import { readFileSync, writeFileSync } from "node:fs";
+import { join } from "node:path";
+import {
+  buildPrompt,
+  isValidAgentName,
+  MockProvider,
+  parseAgentSource,
+  type AgentDef,
+  type RunRow,
+  type Store,
+} from "@agentfloor/engine";
 import { PAGE_HTML } from "./page.js";
 
 export interface DashboardOptions {
@@ -18,6 +28,12 @@ export interface DashboardOptions {
   agents: Map<string, AgentDef>;
   /** Fleet display name (usually the fleet directory basename). */
   floorName: string;
+  /**
+   * Directory of agent files. Enables the Agent Editor (saving writes
+   * `<agentsDir>/<name>.md`; the floor's hot-reload makes it live). Omit for
+   * a strictly read-only console.
+   */
+  agentsDir?: string;
   port?: number;
   host?: string;
 }
@@ -52,7 +68,7 @@ function scheduleLabel(def: AgentDef): string {
   return `daily ${String(def.schedule.hour).padStart(2, "0")}:${String(def.schedule.minute).padStart(2, "0")}`;
 }
 
-async function buildState(store: Store, agents: Map<string, AgentDef>, floorName: string) {
+async function buildState(store: Store, agents: Map<string, AgentDef>, floorName: string, editable: boolean) {
   const now = Date.now();
   const startOfDay = new Date();
   startOfDay.setHours(0, 0, 0, 0);
@@ -93,6 +109,7 @@ async function buildState(store: Store, agents: Map<string, AgentDef>, floorName
   return {
     now: new Date(now).toISOString(),
     floor: floorName,
+    editable,
     agents: agentRows,
     totals: {
       runsToday: stats.reduce((n, s) => n + s.runs, 0),
@@ -109,24 +126,131 @@ async function buildState(store: Store, agents: Map<string, AgentDef>, floorName
   };
 }
 
+function readJson(req: IncomingMessage): Promise<Record<string, unknown>> {
+  return new Promise((resolve, reject) => {
+    let body = "";
+    req.on("data", (c) => {
+      body += c;
+      if (body.length > 1_000_000) reject(new Error("body too large"));
+    });
+    req.on("end", () => {
+      try {
+        resolve(body ? (JSON.parse(body) as Record<string, unknown>) : {});
+      } catch {
+        reject(new Error("invalid JSON body"));
+      }
+    });
+    req.on("error", reject);
+  });
+}
+
 export function startDashboard(opts: DashboardOptions): Promise<DashboardHandle> {
   const host = opts.host ?? "127.0.0.1";
   const port = opts.port ?? 4400;
+  const dryRunner = new MockProvider();
 
   const server: Server = createServer(async (req, res) => {
     try {
-      const url = new URL(req.url ?? "/", `http://${req.headers.host ?? "localhost"}`);
+      // DNS-rebinding guard: this console only ever answers as localhost.
+      const hostHeader = String(req.headers.host ?? "");
+      if (!/^(127\.0\.0\.1|localhost|\[::1\])(:\d+)?$/.test(hostHeader)) {
+        res.writeHead(403, { "content-type": "text/plain" });
+        res.end("forbidden host");
+        return;
+      }
+      // Localhost-CSRF guard: mutations require a custom header. Browsers
+      // won't send it cross-origin without a CORS preflight, and we never
+      // answer preflights permissively — so foreign pages can't write here.
+      if (req.method !== "GET" && req.headers["x-agentfloor-edit"] !== "1") {
+        res.writeHead(403, { "content-type": "application/json" });
+        res.end(JSON.stringify({ error: "missing edit header" }));
+        return;
+      }
+      const url = new URL(req.url ?? "/", `http://${hostHeader}`);
       if (url.pathname === "/") {
         res.writeHead(200, { "content-type": "text/html; charset=utf-8" });
         res.end(PAGE_HTML);
         return;
       }
       if (url.pathname === "/api/state") {
-        const state = await buildState(opts.store, opts.agents, opts.floorName);
+        const state = await buildState(opts.store, opts.agents, opts.floorName, !!opts.agentsDir);
         res.writeHead(200, { "content-type": "application/json" });
         res.end(JSON.stringify(state));
         return;
       }
+      const json = (code: number, payload: unknown) => {
+        res.writeHead(code, { "content-type": "application/json" });
+        res.end(JSON.stringify(payload));
+      };
+
+      // ── Agent Editor API ────────────────────────────────────────────────
+      const agentMatch = url.pathname.match(/^\/api\/agent\/([a-z0-9_-]+)(\/(dry-run|run))?$/);
+      if (agentMatch) {
+        const name = agentMatch[1];
+        const action = agentMatch[3];
+        if (!isValidAgentName(name)) return json(400, { error: "invalid agent name" });
+
+        if (req.method === "GET" && !action) {
+          const def = opts.agents.get(name);
+          if (!def || !def.file) return json(404, { error: "unknown agent" });
+          return json(200, { name, file: def.file, source: readFileSync(def.file, "utf8") });
+        }
+
+        if (req.method === "POST" && action === "run") {
+          const jobId = await opts.store.scheduleJob({
+            agent: name,
+            runAt: new Date().toISOString(),
+            reason: "run now (dashboard)",
+            createdBy: "dashboard",
+          });
+          return json(200, { ok: true, jobId, note: "queued — the floor dispatches it on its next tick" });
+        }
+
+        if (req.method === "POST" && action === "dry-run") {
+          const body = await readJson(req);
+          const source =
+            typeof body.source === "string"
+              ? body.source
+              : opts.agents.get(name)?.file
+                ? readFileSync(opts.agents.get(name)!.file, "utf8")
+                : null;
+          if (source == null) return json(404, { error: "unknown agent and no draft source given" });
+          let def: AgentDef;
+          try {
+            def = parseAgentSource(name, source);
+          } catch (err) {
+            return json(422, { error: err instanceof Error ? err.message : String(err) });
+          }
+          const { system, prompt } = await buildPrompt(opts.store, def);
+          const result = await dryRunner.generate({ system, prompt, model: def.model, maxTokens: def.maxTokensPerRun });
+          return json(200, { system, prompt, output: result.text });
+        }
+
+        if (req.method === "POST" && !action) {
+          if (!opts.agentsDir) return json(403, { error: "editor disabled — dashboard was started without an agents directory" });
+          const body = await readJson(req);
+          if (typeof body.source !== "string") return json(400, { error: "body must be { source: string }" });
+          const file = join(opts.agentsDir, `${name}.md`);
+          let def: AgentDef;
+          try {
+            def = parseAgentSource(name, body.source, file);
+          } catch (err) {
+            return json(422, { error: err instanceof Error ? err.message : String(err) });
+          }
+          writeFileSync(file, body.source);
+          opts.agents.set(name, def); // immediate; file watchers catch it too
+          return json(200, { ok: true, file, note: "saved — effective on the agent's next run" });
+        }
+      }
+
+      if (url.pathname === "/api/tell" && req.method === "POST") {
+        const body = await readJson(req);
+        const text = typeof body.body === "string" ? body.body.trim() : "";
+        if (!text) return json(400, { error: "body must be { body: string }" });
+        const id = await opts.store.insertDirective(text, "dashboard");
+        return json(200, { ok: true, id });
+      }
+
       const runMatch = url.pathname.match(/^\/api\/run\/([0-9a-f-]{8,})$/);
       if (runMatch) {
         const run = await opts.store.getRun(runMatch[1]);

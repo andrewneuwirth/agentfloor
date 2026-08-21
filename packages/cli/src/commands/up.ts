@@ -24,6 +24,7 @@ export async function up(cwd: string, args: string[] = []): Promise<void> {
       store: ctx.store,
       agents: ctx.agents,
       floorName: basename(ctx.configDir),
+      agentsDir: ctx.agentsDir,
       port: parsePort(args),
     });
     console.log(`dashboard on ${dash.url}\n`);

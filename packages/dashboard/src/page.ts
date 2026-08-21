@@ -160,7 +160,44 @@ export const PAGE_HTML = `<!doctype html>
   #drawer .err { color: var(--err); }
 
   footer { margin-top: 34px; font-family: var(--mono); font-size: 11px; color: var(--faint); letter-spacing: .08em; }
-  button:focus-visible, .row.run:focus-visible { outline: 2px solid var(--phosphor); outline-offset: 1px; }
+  button:focus-visible, .row.run:focus-visible, .strip.editable:focus-visible { outline: 2px solid var(--phosphor); outline-offset: 1px; }
+
+  /* editor */
+  .btn {
+    background: none; border: 1px solid var(--steel); color: var(--dim);
+    font-family: var(--mono); font-size: 11px; letter-spacing: .08em;
+    padding: 5px 12px; cursor: pointer;
+  }
+  .btn:hover { color: var(--paper); border-color: var(--dim); }
+  .btn.primary { color: var(--phosphor); border-color: rgba(255,176,0,.45); }
+  .btn.primary:hover { border-color: var(--phosphor); }
+  .btn.mini { padding: 2px 8px; font-size: 10px; text-transform: uppercase; letter-spacing: .18em; }
+  .label .btn.mini { float: right; margin-top: -3px; }
+  .strip.editable { cursor: pointer; }
+  .strip.editable:hover { border-color: var(--dim); }
+
+  #drawer textarea {
+    width: 100%; min-height: 46vh; resize: vertical;
+    background: var(--bay); border: 1px solid var(--steel); color: var(--paper);
+    font-family: var(--mono); font-size: 12.5px; line-height: 1.5;
+    padding: 12px; outline: none;
+  }
+  #drawer textarea:focus { border-color: var(--phosphor); }
+  #drawer input.edname {
+    background: var(--bay); border: 1px solid var(--steel); color: var(--paper);
+    font-family: var(--mono); font-size: 14px; padding: 6px 10px; outline: none; width: 240px;
+  }
+  .edactions { display: flex; gap: 10px; align-items: center; margin: 12px 0 6px; }
+  .edmsg { font-family: var(--mono); font-size: 12px; color: var(--dim); }
+  .edmsg.ok { color: var(--ok); }
+  .edmsg.bad { color: var(--err); }
+
+  .tellbar { display: flex; gap: 8px; margin-top: 8px; }
+  .tellbar input {
+    flex: 1; background: var(--bay); border: 1px solid var(--steel); color: var(--paper);
+    font-family: var(--mono); font-size: 12px; padding: 7px 10px; outline: none;
+  }
+  .tellbar input:focus { border-color: var(--phosphor); }
 </style>
 </head>
 <body>
@@ -176,7 +213,7 @@ export const PAGE_HTML = `<!doctype html>
   </div>
 </header>
 
-<div class="label">Strip board</div>
+<div class="label">Strip board <button class="btn mini" id="newagent" hidden>+ new agent</button></div>
 <div id="board"></div>
 
 <div class="cols">
@@ -195,6 +232,10 @@ export const PAGE_HTML = `<!doctype html>
     <div class="panel" id="budgets"></div>
     <div class="label">Open directives</div>
     <div class="panel" id="directives"></div>
+    <form class="tellbar" id="tellform">
+      <input id="tellinput" placeholder="Tell the fleet&hellip;" aria-label="Directive for the fleet">
+      <button class="btn" type="submit">tell</button>
+    </form>
   </section>
 </div>
 
@@ -241,7 +282,8 @@ export const PAGE_HTML = `<!doctype html>
       else if (a.phase === "failed") nowLine = "last run failed";
       else nowLine = "idle";
       var hbFresh = a.heartbeatAt && (Date.now() - new Date(a.heartbeatAt).getTime()) < 90000;
-      return '<div class="strip ' + esc(a.phase) + '">'
+      var editable = state.editable ? ' editable" tabindex="0" role="button" title="Edit ' + esc(a.name) + '" data-name="' + esc(a.name) + '"' : '"';
+      return '<div class="strip ' + esc(a.phase) + editable + '>'
         + '<div class="rail"></div>'
         + '<div class="who"><div class="name">' + esc(a.name) + '</div><div class="sched">' + esc(a.schedule) + (a.model ? ' \\u00b7 ' + esc(a.model) : '') + '</div></div>'
         + '<div class="now" title="' + esc(nowLine) + '">' + esc(nowLine) + '</div>'
@@ -310,6 +352,7 @@ export const PAGE_HTML = `<!doctype html>
 
   function render() {
     if (!state) return;
+    document.getElementById("newagent").hidden = !state.editable;
     document.getElementById("floorname").textContent = "/ " + state.floor;
     document.getElementById("h-running").textContent = state.totals.running;
     document.getElementById("h-stalled").textContent = state.totals.stalled;
@@ -350,6 +393,103 @@ export const PAGE_HTML = `<!doctype html>
       drawer.querySelector(".close").focus();
     });
   }
+  // ── agent editor ──
+  function post(url, data) {
+    return fetch(url, {
+      method: "POST",
+      headers: { "content-type": "application/json", "x-agentfloor-edit": "1" },
+      body: JSON.stringify(data || {}),
+    }).then(function (r) { return r.json().then(function (j) { return { ok: r.ok, body: j }; }); });
+  }
+
+  var NEW_TEMPLATE = '---\\ndescription: What this agent does, in one line\\nschedule: every 1h\\nmaxTokensPerRun: 3000\\n---\\n\\nYou are a new agent. Each run, do one concrete unit of work and report it.\\n';
+
+  function openEditor(name, source, isNew) {
+    var html = '<button class="btn close" aria-label="Close">esc</button>';
+    if (isNew) {
+      html += '<h2>new agent</h2><div class="meta">name (lowercase, digits, - or _): <input class="edname" spellcheck="false" placeholder="my-agent"></div>';
+    } else {
+      html += '<h2>edit: ' + esc(name) + '</h2><div class="meta">agents/' + esc(name) + '.md \\u00b7 saving applies on the next run</div>';
+    }
+    html += '<textarea class="edsrc" spellcheck="false"></textarea>'
+      + '<div class="edactions">'
+      + '<button class="btn primary edsave">Save</button>'
+      + '<button class="btn eddry">Dry-run</button>'
+      + (isNew ? '' : '<button class="btn edrun">Run now</button>')
+      + '<span class="edmsg" role="status"></span>'
+      + '</div><div class="edresult"></div>';
+    drawer.innerHTML = html;
+    drawer.classList.add("open");
+    drawer.querySelector(".edsrc").value = source;
+    drawer.querySelector(".close").addEventListener("click", closeDrawer);
+
+    var msg = drawer.querySelector(".edmsg");
+    function say(text, cls) { msg.textContent = text; msg.className = "edmsg " + (cls || ""); }
+    function currentName() {
+      if (!isNew) return name;
+      var v = (drawer.querySelector(".edname").value || "").trim();
+      if (!/^[a-z0-9][a-z0-9_-]*$/.test(v)) { say("name must be lowercase alphanumeric (with - or _)", "bad"); return null; }
+      return v;
+    }
+
+    drawer.querySelector(".edsave").addEventListener("click", function () {
+      var n = currentName(); if (!n) return;
+      say("saving\\u2026");
+      post("/api/agent/" + n, { source: drawer.querySelector(".edsrc").value }).then(function (r) {
+        if (r.ok) { say("saved \\u2014 effective on " + n + "'s next run", "ok"); }
+        else say(r.body.error || "save failed", "bad");
+      });
+    });
+
+    drawer.querySelector(".eddry").addEventListener("click", function () {
+      var n = currentName() || "draft";
+      say("dry-running\\u2026");
+      post("/api/agent/" + n + "/dry-run", { source: drawer.querySelector(".edsrc").value }).then(function (r) {
+        var out = drawer.querySelector(".edresult");
+        if (!r.ok) { say(r.body.error || "dry-run failed", "bad"); out.innerHTML = ""; return; }
+        say("dry-run ok \\u2014 sandboxed, nothing recorded, no tokens spent", "ok");
+        out.innerHTML = '<div class="label">Rendered prompt (exactly what a real run sends)</div><pre>' + esc(r.body.prompt) + '</pre>'
+          + '<div class="label">Mock output</div><pre>' + esc(r.body.output) + '</pre>';
+      });
+    });
+
+    var runBtn = drawer.querySelector(".edrun");
+    if (runBtn) runBtn.addEventListener("click", function () {
+      say("queueing\\u2026");
+      post("/api/agent/" + name + "/run").then(function (r) {
+        if (r.ok) say("queued \\u2014 the floor dispatches it within a tick", "ok");
+        else say(r.body.error || "failed to queue", "bad");
+      });
+    });
+  }
+
+  document.getElementById("board").addEventListener("click", function (ev) {
+    var strip = ev.target.closest(".strip.editable");
+    if (!strip) return;
+    var name = strip.getAttribute("data-name");
+    fetch("/api/agent/" + name).then(function (r) { return r.json(); }).then(function (d) {
+      if (d.source != null) openEditor(name, d.source, false);
+    });
+  });
+  document.getElementById("board").addEventListener("keydown", function (ev) {
+    if (ev.key !== "Enter") return;
+    var strip = ev.target.closest(".strip.editable");
+    if (strip) strip.click();
+  });
+  document.getElementById("newagent").addEventListener("click", function () {
+    openEditor(null, NEW_TEMPLATE, true);
+  });
+
+  document.getElementById("tellform").addEventListener("submit", function (ev) {
+    ev.preventDefault();
+    var input = document.getElementById("tellinput");
+    var text = input.value.trim();
+    if (!text) return;
+    post("/api/tell", { body: text }).then(function (r) {
+      if (r.ok) { input.value = ""; poll(); }
+    });
+  });
+
   document.getElementById("runs").addEventListener("click", function (ev) {
     var row = ev.target.closest(".row.run");
     if (row) openRun(row.getAttribute("data-id"));

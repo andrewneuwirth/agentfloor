@@ -112,7 +112,8 @@ data — adapters are named by string, so a fleet is fully described by one
 
 ## The dashboard
 
-A read-only web console over the floor — the strip board:
+The web console over the floor — the strip board, plus the live Agent
+Editor:
 
 ```sh
 agentfloor up --dashboard      # floor + console in one process, or
@@ -127,12 +128,24 @@ colored events), the **run ledger** (click any run to open the reader —
 full output, timing, token usage, stats, errors), the **queue** of pending
 jobs, **budget meters**, and your open directives.
 
+**The dashboard also authors the fleet.** Click any strip to open its agent
+file in the editor: change the brief, schedule, model, or budget, **dry-run**
+it first (see the exact rendered prompt plus a sandboxed mock pass — nothing
+recorded, no tokens spent), then **save** — the file on disk is updated and
+the change is live on the agent's next run. **Run now** queues an immediate
+run; **+ new agent** grows the fleet from a template; the **tell** box
+records a directive every agent folds into its next run. Because the editor
+writes the same `agents/*.md` files you'd edit by hand, git still sees every
+change and file edits and browser edits never conflict.
+
 It's zero-setup by design: one self-contained page, no build step, no
-frameworks, system fonts, works offline. It binds `127.0.0.1` only — it's an
-operator's local console with no auth, so don't port-forward it to the
-internet. The floor and the dashboard can run as separate processes; they
-share the store, and everything stays consistent because job claims and
-slots are atomic.
+frameworks, system fonts, works offline. Security posture: it binds
+`127.0.0.1` only, rejects requests with a non-localhost Host header (DNS
+rebinding), and requires a custom header on every mutation so a foreign web
+page can't forge writes (localhost CSRF). There is still no auth — it's an
+operator's local console; don't port-forward it to the internet. The floor
+and the dashboard can run as separate processes; they share the store, and
+everything stays consistent because job claims and slots are atomic.
 
 ## Running unattended (overnight / on boot)
 
@@ -287,7 +300,8 @@ adapter resolves auth from the environment.
 
 1. ~~Engine + CLI + SQLite + Claude adapter~~
 2. ~~Dashboard (read): strip board, run reader, live feed, queue, budgets~~
-3. Dashboard (author): edit agents in the browser, dry-run before scheduling
+3. ~~Dashboard (author): the live Agent Editor — edit, dry-run, save, run now,
+   new agents, directives from the browser~~
 4. Adapter breadth: Postgres store, OpenAI/Ollama providers, a `claude-code`
    provider (run agents through a local Claude Code install so they bill a
    subscription instead of an API key — opt-in), cron/launchd schedulers,

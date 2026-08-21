@@ -42,11 +42,14 @@ export function nextFireTime(schedule: Schedule, after: Date): Date {
   return next;
 }
 
-export function parseAgentFile(file: string): AgentDef {
-  const raw = readFileSync(file, "utf8");
-  const name = basename(file).replace(/\.md$/, "");
-  if (!/^[a-z0-9][a-z0-9_-]*$/.test(name)) {
-    throw new Error(`agent file "${file}": name must be lowercase alphanumeric (with - or _)`);
+export function isValidAgentName(name: string): boolean {
+  return /^[a-z0-9][a-z0-9_-]*$/.test(name);
+}
+
+/** Parse agent source text (frontmatter + brief) without touching disk. */
+export function parseAgentSource(name: string, raw: string, file = ""): AgentDef {
+  if (!isValidAgentName(name)) {
+    throw new Error(`agent name "${name}" must be lowercase alphanumeric (with - or _)`);
   }
   const m = raw.match(FRONTMATTER);
   const fm: Record<string, unknown> = m ? (parseYaml(m[1]) ?? {}) : {};
@@ -60,8 +63,14 @@ export function parseAgentFile(file: string): AgentDef {
     maxTokensPerRun: fm.maxTokensPerRun != null ? Number(fm.maxTokensPerRun) : undefined,
     enabled: fm.enabled !== false,
     brief,
-    file: resolve(file),
+    file,
   };
+}
+
+export function parseAgentFile(file: string): AgentDef {
+  const raw = readFileSync(file, "utf8");
+  const name = basename(file).replace(/\.md$/, "");
+  return parseAgentSource(name, raw, resolve(file));
 }
 
 export function loadAgents(dir: string): Map<string, AgentDef> {

@@ -61,3 +61,12 @@ next run — add a file to grow the fleet, flip `enabled: false` to bench an
 agent, rewrite a brief to retune it. A file with a syntax error keeps its
 previous good definition and logs the parse error instead of crashing the
 floor.
+
+## Editing from the dashboard
+
+The web console edits the same files: click a strip to open the agent in
+the editor, dry-run the draft (rendered prompt + a sandboxed mock pass),
+save, or queue an immediate run. A draft that doesn't parse is rejected
+with the parse error — the file on disk is never left broken. Browser edits
+and hand edits coexist because the markdown file is the single source of
+truth.
