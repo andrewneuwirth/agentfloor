@@ -1,0 +1,22 @@
+{
+  "name": "@agentfloor/llm-claude",
+  "version": "0.1.0",
+  "description": "Claude (Anthropic API) LLM provider adapter for AgentFloor",
+  "type": "module",
+  "main": "dist/index.js",
+  "types": "dist/index.d.ts",
+  "exports": {
+    ".": "./dist/index.js"
+  },
+  "files": [
+    "dist"
+  ],
+  "scripts": {
+    "build": "tsc -b"
+  },
+  "dependencies": {
+    "@agentfloor/engine": "^0.1.0",
+    "@anthropic-ai/sdk": "^0.120.0"
+  },
+  "license": "MIT"
+}

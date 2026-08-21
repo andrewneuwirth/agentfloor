@@ -1,0 +1,24 @@
+{
+  "name": "agentfloor",
+  "version": "0.1.0",
+  "description": "Run and watch a fleet of autonomous LLM agents: scheduler, job queue, cost budgets, and per-run observability",
+  "type": "module",
+  "bin": {
+    "agentfloor": "dist/index.js"
+  },
+  "main": "dist/index.js",
+  "types": "dist/index.d.ts",
+  "files": [
+    "dist"
+  ],
+  "scripts": {
+    "build": "tsc -b"
+  },
+  "dependencies": {
+    "@agentfloor/engine": "^0.1.0",
+    "@agentfloor/llm-claude": "^0.1.0",
+    "@agentfloor/store-sqlite": "^0.1.0",
+    "jiti": "^2.4.0"
+  },
+  "license": "MIT"
+}

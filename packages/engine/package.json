@@ -1,0 +1,21 @@
+{
+  "name": "@agentfloor/engine",
+  "version": "0.1.0",
+  "description": "AgentFloor core: agent definitions, the recording protocol, job queue, and scheduler",
+  "type": "module",
+  "main": "dist/index.js",
+  "types": "dist/index.d.ts",
+  "exports": {
+    ".": "./dist/index.js"
+  },
+  "files": [
+    "dist"
+  ],
+  "scripts": {
+    "build": "tsc -b"
+  },
+  "dependencies": {
+    "yaml": "^2.6.0"
+  },
+  "license": "MIT"
+}

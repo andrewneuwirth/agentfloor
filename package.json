@@ -1,0 +1,22 @@
+{
+  "name": "agentfloor-monorepo",
+  "private": true,
+  "type": "module",
+  "workspaces": [
+    "packages/engine",
+    "packages/adapters/*",
+    "packages/cli"
+  ],
+  "scripts": {
+    "build": "tsc -b packages/engine packages/adapters/store-sqlite packages/adapters/llm-claude packages/cli",
+    "clean": "tsc -b --clean packages/engine packages/adapters/store-sqlite packages/adapters/llm-claude packages/cli",
+    "test": "node --test packages/engine/dist/test 2>/dev/null || true"
+  },
+  "devDependencies": {
+    "@types/node": "^22.10.0",
+    "typescript": "^5.7.0"
+  },
+  "engines": {
+    "node": ">=20"
+  }
+}
