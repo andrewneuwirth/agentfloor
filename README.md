@@ -16,12 +16,13 @@ floor and generalized.
 ## Quickstart
 
 ```sh
-npm install            # in this repo (monorepo; packages not yet published)
-npm run build
+git clone <this repo> && cd agentfloor
+npm install && npm run build
+(cd packages/cli && npm link)   # puts a global `agentfloor` command on your PATH
 
-mkdir my-fleet && cd my-fleet
-node <repo>/packages/cli/dist/index.js init
-node <repo>/packages/cli/dist/index.js up
+mkdir ~/my-fleet && cd ~/my-fleet
+agentfloor init
+agentfloor up
 ```
 
 `init` scaffolds `agentfloor.config.ts` and a starter agent. `up` starts the
@@ -29,6 +30,16 @@ floor on the **mock provider** — the whole machine (scheduling, budgets,
 slots, heartbeats, events) runs for real with zero API keys; switch
 `llm: { adapter: "claude" }` in the config (with `ANTHROPIC_API_KEY` set) for
 real model output.
+
+### What it costs, and whose account
+
+- `llm: { adapter: "mock" }` — **free**. No key, no network calls.
+- `llm: { adapter: "claude" }` — calls the **Anthropic API** and bills the
+  API key you provide, pay-per-token. It does **not** use or consume a
+  Claude Pro/Max subscription — Claude Code and the API are separate billing.
+  Budgets (`budgets: { run: N }`) cap how many runs can spend money per day,
+  and every run's real token usage is recorded so `agentfloor status` shows
+  where the spend went.
 
 ```sh
 agentfloor status              # agents, active runs, budgets, jobs, event feed
@@ -98,6 +109,148 @@ Schedulers and notifiers follow the same pattern. The config file is plain
 data — adapters are named by string, so a fleet is fully described by one
 `agentfloor.config.ts` plus a folder of markdown.
 
+## Running unattended (overnight / on boot)
+
+`agentfloor up` is a plain foreground process — it runs as long as its
+terminal (or service manager) keeps it alive. Pick the option for your OS.
+In every case, **the machine itself must stay awake**: a sleeping laptop runs
+nothing. Desktops/servers are ideal; on a laptop, disable sleep while
+plugged in (see the per-OS notes below).
+
+### Quick and dirty (macOS / Linux): survive closing the terminal
+
+```sh
+cd ~/my-fleet
+nohup agentfloor up >> floor.log 2>&1 &
+echo $! > floor.pid            # remember the process id
+
+tail -f floor.log              # watch it
+kill "$(cat floor.pid)"        # stop it
+```
+
+This survives closing the terminal window but **not** a reboot, and not the
+machine going to sleep. On a Mac, prevent idle sleep for the session with:
+
+```sh
+caffeinate -i nohup agentfloor up >> floor.log 2>&1 &
+```
+
+(`tmux` or `screen` work equally well if you prefer a reattachable session:
+`tmux new -s floor 'agentfloor up'`, detach with `Ctrl-b d`, reattach with
+`tmux attach -t floor`.)
+
+### macOS: launchd (starts at login, restarts on crash)
+
+Create `~/Library/LaunchAgents/com.agentfloor.floor.plist` — fix the three
+paths (`which node`, `which agentfloor`, and your fleet directory):
+
+```xml
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN"
+  "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+  <key>Label</key><string>com.agentfloor.floor</string>
+  <key>ProgramArguments</key>
+  <array>
+    <string>/opt/homebrew/bin/node</string>
+    <string>/Users/YOU/.nvm/versions/node/v22.22.1/bin/agentfloor</string>
+    <string>up</string>
+  </array>
+  <key>WorkingDirectory</key><string>/Users/YOU/my-fleet</string>
+  <key>KeepAlive</key><true/>
+  <key>RunAtLoad</key><true/>
+  <key>StandardOutPath</key><string>/Users/YOU/my-fleet/floor.log</string>
+  <key>StandardErrorPath</key><string>/Users/YOU/my-fleet/floor.log</string>
+</dict>
+</plist>
+```
+
+```sh
+launchctl bootstrap gui/$(id -u) ~/Library/LaunchAgents/com.agentfloor.floor.plist   # start
+launchctl bootout   gui/$(id -u)/com.agentfloor.floor                                # stop
+tail -f ~/my-fleet/floor.log
+```
+
+Keep the Mac awake overnight: System Settings → Displays → Advanced →
+"Prevent automatic sleeping on power adapter when the display is off" (or
+run `sudo pmset -c sleep 0`). The display can sleep; the machine must not.
+
+### Linux: systemd user service (starts at boot, restarts on crash)
+
+Create `~/.config/systemd/user/agentfloor.service`:
+
+```ini
+[Unit]
+Description=AgentFloor fleet
+
+[Service]
+WorkingDirectory=%h/my-fleet
+ExecStart=/usr/bin/env agentfloor up
+Restart=always
+RestartSec=5
+
+[Install]
+WantedBy=default.target
+```
+
+```sh
+systemctl --user daemon-reload
+systemctl --user enable --now agentfloor     # start now + at every boot
+sudo loginctl enable-linger "$USER"          # keep it running while logged out
+journalctl --user -u agentfloor -f           # logs
+systemctl --user stop agentfloor             # stop
+```
+
+The `enable-linger` line is the one people miss — without it, user services
+die when your session ends.
+
+### Windows: Task Scheduler (starts at logon, keeps running)
+
+PowerShell (adjust the two paths; find them with `where.exe node` and
+`where.exe agentfloor`):
+
+```powershell
+$action  = New-ScheduledTaskAction -Execute "C:\Program Files\nodejs\node.exe" `
+  -Argument "C:\Users\YOU\AppData\Roaming\npm\node_modules\agentfloor\dist\index.js up" `
+  -WorkingDirectory "C:\Users\YOU\my-fleet"
+$trigger  = New-ScheduledTaskTrigger -AtLogOn
+$settings = New-ScheduledTaskSettingsSet -RestartCount 999 -RestartInterval (New-TimeSpan -Minutes 1) `
+  -ExecutionTimeLimit ([TimeSpan]::Zero)
+Register-ScheduledTask -TaskName "AgentFloor" -Action $action -Trigger $trigger -Settings $settings
+
+Start-ScheduledTask -TaskName "AgentFloor"    # start now
+Stop-ScheduledTask  -TaskName "AgentFloor"    # stop
+Get-Content C:\Users\YOU\my-fleet\floor.log -Wait   # logs (if you redirect output)
+```
+
+Keep the PC awake: Settings → System → Power → "When plugged in, put my
+device to sleep" → **Never**.
+
+### Any OS: pm2 (easiest if you already use Node)
+
+```sh
+npm install -g pm2
+cd ~/my-fleet
+pm2 start agentfloor --name floor -- up
+pm2 save                       # remember the process list
+pm2 startup                    # prints the one command to run at boot — run it
+pm2 logs floor                 # watch
+pm2 stop floor                 # stop
+```
+
+### Sanity-check it survived the night
+
+```sh
+cd ~/my-fleet && agentfloor status
+```
+
+Recent runs should show timestamps through the night, budgets should show
+the day's spend, and no agent should be stuck `RUNNING` with an old
+heartbeat. It's safe to run `status` (or `run`/`tell`) while the floor is
+up — every command talks to the same store, and job claims and slots are
+atomic.
+
 ## Safety posture
 
 Every run's system prompt carries a baseline: external content is data,
@@ -110,8 +263,10 @@ adapter resolves auth from the environment.
 1. ~~Engine + CLI + SQLite + Claude adapter~~ (this release)
 2. Dashboard (read): office view, run reader, live feed, budgets
 3. Dashboard (author): edit agents in the browser, dry-run before scheduling
-4. Adapter breadth: Postgres store, OpenAI/Ollama providers, cron/launchd
-   schedulers, Slack/Telegram notifiers (directives from chat)
+4. Adapter breadth: Postgres store, OpenAI/Ollama providers, a `claude-code`
+   provider (run agents through a local Claude Code install so they bill a
+   subscription instead of an API key — opt-in), cron/launchd schedulers,
+   Slack/Telegram notifiers (directives from chat)
 5. Starter teams: PR-triage and on-call/monitoring fleets, plugin authoring guide
 
 MIT licensed.
