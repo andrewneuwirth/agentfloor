@@ -1,17 +1,46 @@
-# AgentFloor
+<p align="center">
+  <img src="docs/assets/banner.svg" alt="AgentFloor" width="900">
+</p>
 
-Run and **watch** a fleet of autonomous LLM agents: a scheduler, a claimable
-job queue, and a per-run recording protocol that gives every agent cost
-budgets, crash-safe concurrency, and a live audit trail — with the agents
-themselves defined as plain markdown files you can edit while the floor is
-running.
+**Run and watch a fleet of autonomous LLM agents.**
+
+AgentFloor is the operations layer for a *team* of agents: a scheduler, a
+claimable job queue, per-run cost budgets, crash-safe concurrency, and a
+mission-control dashboard. Every agent is a markdown file you can edit while
+the floor is running — from your editor or from the browser.
+
+<p>
+  <img src="https://img.shields.io/badge/license-MIT-1f6feb" alt="MIT license">
+  <img src="https://img.shields.io/badge/node-%E2%89%A5%2020-43C98A" alt="node >= 20">
+  <img src="https://img.shields.io/badge/dashboard-zero%20dependencies-FFB000" alt="zero-dependency dashboard">
+  <img src="https://img.shields.io/badge/runs%20offline-mock%20provider-7E8FA3" alt="runs offline">
+</p>
+
+<p align="center">
+  <img src="docs/assets/office.gif" alt="The office view: agents at their desks, screens glowing while they work" width="820">
+</p>
 
 Most agent frameworks are a single agent in a loop. The hard part of running
-a *team* of agents unattended is everything around the loop: what fires when,
-what it may spend, whether two copies are stomping each other, what actually
-happened overnight, and how a human steers the whole thing without redeploying.
-AgentFloor is that operations layer, extracted from a production multi-agent
-floor and generalized.
+a team unattended is everything around the loop: what fires when, what it
+may spend, whether two copies are stomping each other, what actually
+happened overnight, and how a human steers the whole thing without
+redeploying. AgentFloor is that layer, extracted from a production
+multi-agent floor and generalized.
+
+Every run, on every provider, passes through the same contract:
+
+```
+budget gate → claim slot → run start → work (heartbeats) → run finish → release slot
+     $$           1x          open        alive + live        real tokens      always
+```
+
+Capped floors go quiet instead of surprising you on an invoice; crashed runs
+free their own slots; silent agents read as stalled, not invisible; and the
+whole story lands in a store your dashboard, CLI, and scripts all read.
+
+<p align="center">
+  <img src="docs/assets/strips.png" alt="The strip board: live status rails, heartbeats, and today's spend per agent" width="900">
+</p>
 
 ## Quickstart
 
@@ -152,6 +181,10 @@ badge when a run fails, an empty chair when it's disabled. Below the board:
 the **live feed** (severity-colored events), the **run ledger** (click any
 run to open the reader — full output, timing, token usage, stats, errors),
 the **queue** of pending jobs, **budget meters**, and your open directives.
+
+<p align="center">
+  <img src="docs/assets/editor.png" alt="The agent editor: edit the brief in the browser, dry-run the exact prompt, save live" width="900">
+</p>
 
 **The dashboard also authors the fleet.** Click any strip to open its agent
 file in the editor: change the brief, schedule, model, or budget, **dry-run**
