@@ -13,7 +13,7 @@
  * row and frees its slot (the slot is a TTL lease renewed by heartbeats, so
  * even a SIGKILL can't wedge the floor).
  */
-import type { AgentDef, LLMProvider, Store } from "./types.js";
+import type { AgentDef, LLMProvider, Notifier, Store } from "./types.js";
 import { GLOBAL_GUIDELINES } from "./guidelines.js";
 
 export interface RunOutcome {
@@ -27,6 +27,8 @@ export interface RunOutcome {
 export interface RunDeps {
   store: Store;
   llm: LLMProvider;
+  /** Optional human alerts: run failures and budget exhaustion. */
+  notifier?: Notifier;
   /** Slot lease TTL. Heartbeats renew it; default 10 minutes. */
   slotTtlSeconds?: number;
   /** Heartbeat cadence while the provider call is in flight. Default 30s. */
@@ -73,9 +75,21 @@ export async function executeRun(deps: RunDeps, agent: AgentDef, opts: { reason?
 
   // 1. budget gate — before anything else
   if (!(await store.consumeBudget("run"))) {
-    await store.logEvent(agent.name, "budget_exhausted", "Daily run budget hit; skipping run", {
-      severity: "warn",
-    });
+    // Dedupe through the store, not memory: under cron-driven ticks every
+    // invocation is a fresh process, and a capped floor re-skips every
+    // fire — the feed (and the human) need one alert per window, not one
+    // per tick.
+    const windowMs = 30 * 60 * 1000;
+    const recent = await store.recentEvents(50);
+    const alreadyFlagged = recent.some(
+      (e) => e.kind === "budget_exhausted" && Date.now() - new Date(e.createdAt).getTime() < windowMs,
+    );
+    if (!alreadyFlagged) {
+      await store.logEvent(agent.name, "budget_exhausted", "Daily run budget hit; the floor is idle until the cap resets", {
+        severity: "warn",
+      });
+      await deps.notifier?.notify("Daily run budget exhausted — the floor is idle until tomorrow.", { severity: "warn" }).catch(() => {});
+    }
     log(`${agent.name}: run budget exhausted, skipping`);
     return { status: "skipped_budget" };
   }
@@ -138,6 +152,7 @@ export async function executeRun(deps: RunDeps, agent: AgentDef, opts: { reason?
     await store
       .logEvent(agent.name, "run_error", `Run failed: ${message}`, { severity: "error", runId: rid })
       .catch(() => {});
+    await deps.notifier?.notify(`Run failed — ${agent.name}: ${message.slice(0, 300)}`, { severity: "error" }).catch(() => {});
     log(`${agent.name}: run failed — ${message}`);
     return { status: "failed", runId: rid, error: message };
   } finally {

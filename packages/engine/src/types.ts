@@ -235,6 +235,14 @@ export interface LLMProvider {
   generate(req: GenerateRequest): Promise<GenerateResult>;
 }
 
+// ── Notifier adapter ─────────────────────────────────────────────────────────
+
+/** Outbound human alerts (run failures, exhausted budgets, stalls). */
+export interface Notifier {
+  readonly name: string;
+  notify(message: string, opts?: { severity?: EventSeverity }): Promise<void>;
+}
+
 // ── Config (plain data — resolved by the CLI's adapter registry) ─────────────
 
 export interface AgentFloorConfig {
@@ -242,6 +250,8 @@ export interface AgentFloorConfig {
   agentsDir?: string;
   store?: { adapter: string; [key: string]: unknown };
   llm?: { adapter: string; [key: string]: unknown };
+  /** Optional outbound alerts (run failures, budget exhaustion). */
+  notify?: { adapter: string; [key: string]: unknown };
   /** Daily caps by budget kind. `run` gates every agent run. */
   budgets?: Record<string, number>;
   /** Scheduler tick interval in seconds (default 15). */

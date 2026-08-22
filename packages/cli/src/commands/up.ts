@@ -33,6 +33,7 @@ export async function up(cwd: string, args: string[] = []): Promise<void> {
   const floor = startFloor({
     store: ctx.store,
     llm: ctx.llm,
+    notifier: ctx.notifier,
     agents: ctx.agents,
     agentsDir: ctx.agentsDir,
     tickSeconds: ctx.config.tickSeconds,

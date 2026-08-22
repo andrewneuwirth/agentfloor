@@ -18,6 +18,11 @@
     "@agentfloor/dashboard": "^0.1.0",
     "@agentfloor/engine": "^0.1.0",
     "@agentfloor/llm-claude": "^0.1.0",
+    "@agentfloor/llm-claude-code": "^0.1.0",
+    "@agentfloor/llm-ollama": "^0.1.0",
+    "@agentfloor/llm-openai": "^0.1.0",
+    "@agentfloor/notify": "^0.1.0",
+    "@agentfloor/store-postgres": "^0.1.0",
     "@agentfloor/store-sqlite": "^0.1.0",
     "jiti": "^2.4.0"
   },

@@ -1,0 +1,21 @@
+{
+  "name": "@agentfloor/notify",
+  "version": "0.1.0",
+  "description": "Slack and Telegram notifier adapters for AgentFloor",
+  "type": "module",
+  "main": "dist/index.js",
+  "types": "dist/index.d.ts",
+  "exports": {
+    ".": "./dist/index.js"
+  },
+  "files": [
+    "dist"
+  ],
+  "scripts": {
+    "build": "tsc -b"
+  },
+  "dependencies": {
+    "@agentfloor/engine": "^0.1.0"
+  },
+  "license": "MIT"
+}

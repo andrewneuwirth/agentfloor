@@ -34,12 +34,21 @@ real model output.
 ### What it costs, and whose account
 
 - `llm: { adapter: "mock" }` — **free**. No key, no network calls.
-- `llm: { adapter: "claude" }` — calls the **Anthropic API** and bills the
-  API key you provide, pay-per-token. It does **not** use or consume a
-  Claude Pro/Max subscription — Claude Code and the API are separate billing.
-  Budgets (`budgets: { run: N }`) cap how many runs can spend money per day,
-  and every run's real token usage is recorded so `agentfloor status` shows
-  where the spend went.
+- `llm: { adapter: "claude" }` — the **Anthropic API**; bills
+  `ANTHROPIC_API_KEY` pay-per-token. Does **not** touch a Claude Pro/Max
+  subscription.
+- `llm: { adapter: "openai", model: "..." }` — the OpenAI API; bills
+  `OPENAI_API_KEY`.
+- `llm: { adapter: "ollama", model: "..." }` — **local models, zero API
+  cost** (run `ollama serve` and pull a model first).
+- `llm: { adapter: "claude-code" }` — the explicit opt-in that **does**
+  bill a Claude subscription: it runs generations through your local
+  Claude Code login. Off unless you choose it.
+
+Whatever the provider, budgets (`budgets: { run: N }`) cap how many runs
+can spend per day, every run's real token usage is recorded, and the
+dashboard shows where the spend went. Full adapter table:
+[docs/adapters.md](docs/adapters.md).
 
 ```sh
 agentfloor status              # agents, active runs, budgets, jobs, event feed
@@ -94,21 +103,34 @@ what the protocol wrote.
 ```
 packages/
   engine/                 core: agent loader, recording protocol, job queue
-                          semantics, scheduler loop, mock provider
+                          semantics, floor loop + one-shot tick, notifier
+                          throttling, mock provider
   adapters/
     store-sqlite/         zero-setup storage (one file on disk)
+    store-postgres/       shared storage for multi-machine fleets
     llm-claude/           Anthropic API provider
-  dashboard/              the read-only web console (self-contained, no build)
-  cli/                    agentfloor init | up | run | dry-run | status | tell | dashboard
+    llm-openai/           OpenAI API provider
+    llm-ollama/           local models via Ollama (zero API cost)
+    llm-claude-code/      opt-in: bill a Claude subscription via the local CLI
+    notify/               Slack + Telegram alerts (failures, budget caps)
+  dashboard/              the web console + agent editor (self-contained, no build)
+  cli/                    agentfloor init | up | tick | run | dry-run | status | tell | dashboard
 examples/
-  content-research/       a three-agent editorial desk you can run today
+  content-research/       an editorial desk (scout, outliner, editor)
+  pr-triage/              a review queue desk (triager, review-prepper, nudger)
+  on-call/                an incident desk (signal-reader, scribe, handoff)
 ```
 
-Everything is an adapter behind an interface: **Store** (SQLite today;
-Postgres next) and **LLMProvider** (Claude + mock today; OpenAI/Ollama next).
-Schedulers and notifiers follow the same pattern. The config file is plain
-data — adapters are named by string, so a fleet is fully described by one
-`agentfloor.config.ts` plus a folder of markdown.
+Everything is an adapter behind an interface — **Store**, **LLMProvider**,
+**Notifier** — resolved by name from plain-data config, so a fleet is fully
+described by one `agentfloor.config.ts` plus a folder of markdown. Authoring
+guide: [docs/adapters.md](docs/adapters.md). Prefer no resident process?
+`agentfloor tick` runs one scheduler pass and exits, so cron, launchd, or a
+systemd timer can drive the floor: [docs/schedulers.md](docs/schedulers.md).
+
+Optional alerts: `notify: { adapter: "slack" }` (or `telegram`) pings you on
+run failures and budget exhaustion, deduplicated so a capped floor sends one
+message, not one per tick. Credentials come from the environment only.
 
 ## The dashboard
 
@@ -120,13 +142,16 @@ agentfloor up --dashboard      # floor + console in one process, or
 agentfloor dashboard           # console alone, alongside a running floor
 ```
 
-Open `http://127.0.0.1:4400` (change with `--port`). Every agent is a strip:
-a live status rail (amber pulse = running, red = stalled, green = idle), the
-task it's working on right now, a ticking last-heartbeat counter, and
-today's runs and token spend. Below the board: the **live feed** (severity-
-colored events), the **run ledger** (click any run to open the reader —
-full output, timing, token usage, stats, errors), the **queue** of pending
-jobs, **budget meters**, and your open directives.
+Open `http://127.0.0.1:4400` (change with `--port`). Two views of the same
+floor: **strips** — every agent as a flight strip with a live status rail
+(amber pulse = running, red = stalled, green = idle), its current task, a
+ticking last-heartbeat counter, and today's runs and token spend — and
+**office**, where every agent is a little character at a desk: screen
+glowing and head bobbing while it works, a task bubble overhead, an error
+badge when a run fails, an empty chair when it's disabled. Below the board:
+the **live feed** (severity-colored events), the **run ledger** (click any
+run to open the reader — full output, timing, token usage, stats, errors),
+the **queue** of pending jobs, **budget meters**, and your open directives.
 
 **The dashboard also authors the fleet.** Click any strip to open its agent
 file in the editor: change the brief, schedule, model, or budget, **dry-run**
@@ -302,10 +327,12 @@ adapter resolves auth from the environment.
 2. ~~Dashboard (read): strip board, run reader, live feed, queue, budgets~~
 3. ~~Dashboard (author): the live Agent Editor — edit, dry-run, save, run now,
    new agents, directives from the browser~~
-4. Adapter breadth: Postgres store, OpenAI/Ollama providers, a `claude-code`
-   provider (run agents through a local Claude Code install so they bill a
-   subscription instead of an API key — opt-in), cron/launchd schedulers,
-   Slack/Telegram notifiers (directives from chat)
-5. Starter teams: PR-triage and on-call/monitoring fleets, plugin authoring guide
+4. ~~Adapter breadth: Postgres store, OpenAI/Ollama/claude-code providers,
+   `agentfloor tick` for cron/launchd/systemd, Slack/Telegram notifiers~~
+5. ~~Starter teams + docs: content-research / PR-triage / on-call fleets,
+   adapter-authoring guide, external-scheduler guide~~
+6. Next: agent tools (a safe registry + per-agent allowlists), inbound
+   directives from chat (Slack/Telegram → `tell`), a Postgres integration
+   test rig, npm publish
 
 MIT licensed.

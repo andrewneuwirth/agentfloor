@@ -9,8 +9,8 @@
     "packages/cli"
   ],
   "scripts": {
-    "build": "tsc -b packages/engine packages/dashboard packages/adapters/store-sqlite packages/adapters/llm-claude packages/cli",
-    "clean": "tsc -b --clean packages/engine packages/dashboard packages/adapters/store-sqlite packages/adapters/llm-claude packages/cli",
+    "build": "tsc -b packages/engine packages/dashboard packages/adapters/store-sqlite packages/adapters/store-postgres packages/adapters/llm-claude packages/adapters/llm-openai packages/adapters/llm-ollama packages/adapters/llm-claude-code packages/adapters/notify packages/cli",
+    "clean": "tsc -b --clean packages/engine packages/dashboard packages/adapters/store-sqlite packages/adapters/store-postgres packages/adapters/llm-claude packages/adapters/llm-openai packages/adapters/llm-ollama packages/adapters/llm-claude-code packages/adapters/notify packages/cli",
     "test": "node --test packages/engine/dist/test 2>/dev/null || true"
   },
   "devDependencies": {

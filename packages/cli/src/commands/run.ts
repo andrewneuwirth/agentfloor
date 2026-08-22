@@ -10,9 +10,11 @@ export async function run(cwd: string, agentName: string | undefined): Promise<v
     if (!agent.enabled) throw new Error(`agent "${agentName}" is disabled (enabled: false)`);
 
     console.log(`running ${agent.name} once (llm: ${ctx.llm.name})…\n`);
-    const outcome = await executeRun({ store: ctx.store, llm: ctx.llm, log: (l) => console.log(`  ${l}`) }, agent, {
-      reason: "manual run",
-    });
+    const outcome = await executeRun(
+      { store: ctx.store, llm: ctx.llm, notifier: ctx.notifier, log: (l) => console.log(`  ${l}`) },
+      agent,
+      { reason: "manual run" },
+    );
 
     switch (outcome.status) {
       case "done":

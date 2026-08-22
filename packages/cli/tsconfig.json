@@ -19,6 +19,21 @@
     },
     {
       "path": "../dashboard"
+    },
+    {
+      "path": "../adapters/store-postgres"
+    },
+    {
+      "path": "../adapters/llm-openai"
+    },
+    {
+      "path": "../adapters/llm-ollama"
+    },
+    {
+      "path": "../adapters/llm-claude-code"
+    },
+    {
+      "path": "../adapters/notify"
     }
   ]
 }
