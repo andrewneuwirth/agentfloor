@@ -198,6 +198,45 @@ export const PAGE_HTML = `<!doctype html>
     font-family: var(--mono); font-size: 12px; padding: 7px 10px; outline: none;
   }
   .tellbar input:focus { border-color: var(--phosphor); }
+
+  /* view toggle */
+  .viewtoggle { display: inline-flex; gap: 0; margin-left: 10px; vertical-align: middle; }
+  .viewtoggle .btn.mini { float: none; margin: 0; border-right-width: 0; }
+  .viewtoggle .btn.mini:last-child { border-right-width: 1px; }
+  .viewtoggle .btn.mini.on { color: var(--phosphor); border-color: rgba(255,176,0,.45); border-right-width: 1px; }
+  .viewtoggle .btn.mini.on + .btn.mini { border-left-width: 0; }
+
+  /* office view */
+  .office { display: grid; grid-template-columns: repeat(auto-fill, minmax(172px, 1fr)); gap: 10px; }
+  .pod {
+    background: var(--bay); border: 1px solid var(--steel);
+    padding: 10px 10px 8px; position: relative; text-align: center;
+  }
+  .pod.editable { cursor: pointer; }
+  .pod.editable:hover { border-color: var(--dim); }
+  .pod.disabled { opacity: .45; }
+  .pod svg { width: 116px; height: 92px; display: block; margin: 0 auto; }
+  .pod .podname { font-family: var(--mono); font-weight: 700; font-size: 13px; letter-spacing: .04em; }
+  .pod .podmeta { font-family: var(--mono); font-size: 10.5px; color: var(--dim); }
+  .pod .bubble {
+    position: absolute; top: 6px; left: 8px; right: 8px;
+    background: var(--ink); border: 1px solid rgba(255,176,0,.4);
+    color: var(--phosphor); font-family: var(--mono); font-size: 10.5px;
+    padding: 3px 7px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+    z-index: 2;
+  }
+  .pod.stalled .bubble { border-color: rgba(240,91,77,.5); color: var(--err); }
+
+  .pod .glow { opacity: 0; }
+  .pod.running .glow { fill: var(--phosphor); animation: screenglow 1.8s ease-in-out infinite; }
+  .pod.stalled .glow { fill: var(--err); animation: screenglow .7s steps(2) infinite; }
+  .pod .head, .pod .torso { transform-box: fill-box; transform-origin: 50% 100%; }
+  .pod.running .head { animation: bob 1.1s ease-in-out infinite; }
+  .pod.running .torso { animation: sway 2.2s ease-in-out infinite; }
+  @keyframes screenglow { 0%,100% { opacity: .55; } 50% { opacity: .15; } }
+  @keyframes bob { 0%,100% { transform: translateY(0); } 50% { transform: translateY(1.4px); } }
+  @keyframes sway { 0%,100% { transform: rotate(-.8deg); } 50% { transform: rotate(.8deg); } }
+  @media (prefers-reduced-motion: reduce) { .pod .glow, .pod .head, .pod .torso { animation: none !important; } .pod.running .glow, .pod.stalled .glow { opacity: .45; } }
 </style>
 </head>
 <body>
@@ -213,7 +252,13 @@ export const PAGE_HTML = `<!doctype html>
   </div>
 </header>
 
-<div class="label">Strip board <button class="btn mini" id="newagent" hidden>+ new agent</button></div>
+<div class="label">Floor
+  <span class="viewtoggle" role="group" aria-label="View">
+    <button class="btn mini" data-view="strips">strips</button>
+    <button class="btn mini" data-view="office">office</button>
+  </span>
+  <button class="btn mini" id="newagent" hidden>+ new agent</button>
+</div>
 <div id="board"></div>
 
 <div class="cols">
@@ -267,32 +312,122 @@ export const PAGE_HTML = `<!doctype html>
   }
   function hhmmss(iso) { return iso ? new Date(iso).toTimeString().slice(0, 8) : ""; }
 
-  function renderBoard() {
+  var view = localStorage.getItem("af-view") === "office" ? "office" : "strips";
+  var boardSig = "";
+
+  function nowLineFor(a) {
+    if (a.phase === "running") return a.task || "working";
+    if (a.phase === "stalled") return "STALLED \\u2014 no heartbeat: " + (a.task || "unknown task");
+    if (a.phase === "disabled") return "disabled";
+    if (a.phase === "never") return "never run";
+    if (a.phase === "failed") return "last run failed";
+    return "idle";
+  }
+  function editableAttrs(a) {
+    return state.editable
+      ? ' editable" tabindex="0" role="button" title="Edit ' + esc(a.name) + '" data-name="' + esc(a.name) + '"'
+      : '"';
+  }
+
+  function stripHtml(a) {
+    var nowLine = nowLineFor(a);
+    return '<div class="strip ' + esc(a.phase) + editableAttrs(a) + '>'
+      + '<div class="rail"></div>'
+      + '<div class="who"><div class="name">' + esc(a.name) + '</div><div class="sched">' + esc(a.schedule) + (a.model ? ' \\u00b7 ' + esc(a.model) : '') + '</div></div>'
+      + '<div class="now" title="' + esc(nowLine) + '">' + esc(nowLine) + '</div>'
+      + '<div class="cell hb"><span class="u">heartbeat</span><b data-ts="' + esc(a.heartbeatAt || "") + '" data-mode="hb"></b></div>'
+      + '<div class="cell today"><span class="u">today</span><b>' + num(a.runsToday) + '</b> runs \\u00b7 <b>' + num(a.tokensToday) + '</b> tok' + (a.failedToday ? ' \\u00b7 <b style="color:var(--err)">' + num(a.failedToday) + ' failed</b>' : '') + '</div>'
+      + '<div class="cell lastrun"><span class="u">last run</span><b data-ts="' + esc(a.lastRunAt || "") + '"></b></div>'
+      + '</div>';
+  }
+
+  // procedural character: hue from the agent's name, so every agent is
+  // recognizably itself across sessions
+  function hueOf(name) {
+    var h = 0;
+    for (var i = 0; i < name.length; i++) h = (h * 31 + name.charCodeAt(i)) % 360;
+    return h;
+  }
+  function podSvg(a) {
+    var h = hueOf(a.name);
+    var shirt = "hsl(" + h + ",45%,52%)";
+    var head = "hsl(" + h + ",38%,72%)";
+    var s = '<svg viewBox="0 0 120 100" aria-hidden="true">';
+    s += '<ellipse class="glow" cx="60" cy="50" rx="36" ry="20"/>';
+    if (a.phase === "disabled") {
+      s += '<rect x="52" y="54" width="16" height="16" rx="3" fill="#1E2A37"/>'; // empty chair
+    } else {
+      s += '<rect class="torso" x="34" y="50" width="52" height="22" rx="10" fill="' + shirt + '"/>';
+      s += '<circle class="head" cx="60" cy="36" r="11" fill="' + head + '"/>';
+    }
+    s += '<rect x="43" y="49" width="34" height="24" rx="3" fill="#18232F" stroke="#2C3E51"/>';
+    s += '<rect x="57" y="73" width="6" height="4" fill="#2C3E51"/>';
+    s += '<rect x="14" y="77" width="92" height="5" fill="#26374A"/>';
+    s += '<rect x="20" y="82" width="4" height="12" fill="#1D2B3A"/><rect x="96" y="82" width="4" height="12" fill="#1D2B3A"/>';
+    if (a.phase === "failed") {
+      s += '<circle cx="83" cy="46" r="6.5" fill="#F05B4D"/><text x="83" y="49.5" text-anchor="middle" font-size="9" font-weight="bold" fill="#0D141C">!</text>';
+    }
+    s += "</svg>";
+    return s;
+  }
+  function podHtml(a) {
+    var bubble = a.phase === "running" || a.phase === "stalled"
+      ? '<div class="bubble" title="' + esc(nowLineFor(a)) + '">' + esc(nowLineFor(a)) + '</div>'
+      : "";
+    return '<div class="pod ' + esc(a.phase) + editableAttrs(a) + '>'
+      + bubble
+      + podSvg(a)
+      + '<div class="podname">' + esc(a.name) + '</div>'
+      + '<div class="podmeta">' + num(a.runsToday) + ' runs \\u00b7 ' + num(a.tokensToday) + ' tok \\u00b7 <span data-ts="' + esc(a.lastRunAt || "") + '"></span></div>'
+      + '</div>';
+  }
+
+  function updateTimes() {
+    var els = document.querySelectorAll("[data-ts]");
+    for (var i = 0; i < els.length; i++) {
+      var ts = els[i].getAttribute("data-ts");
+      els[i].textContent = ts ? ago(ts) : "\\u2014";
+      if (els[i].getAttribute("data-mode") === "hb" && ts) {
+        var fresh = Date.now() - new Date(ts).getTime() < 90000;
+        var cell = els[i].closest(".hb");
+        if (cell) { cell.classList.toggle("fresh", fresh); cell.classList.toggle("stale", !fresh); }
+      }
+    }
+  }
+
+  function renderBoard(force) {
     var el = document.getElementById("board");
+    // rebuild only when content actually changes, so CSS animations never restart
+    var sig = view + "|" + JSON.stringify(state.agents.map(function (a) {
+      return [a.name, a.phase, a.task, a.schedule, a.model, a.runsToday, a.tokensToday, a.failedToday, a.heartbeatAt, a.lastRunAt];
+    })) + "|" + state.editable;
+    if (!force && sig === boardSig) return;
+    boardSig = sig;
     if (!state.agents.length) {
-      el.innerHTML = '<div class="panel empty">No agents on the board. Add a markdown file to agents/ \\u2014 the floor picks it up live.</div>';
+      el.innerHTML = '<div class="panel empty">No agents on the floor. Add a markdown file to agents/' + (state.editable ? ' or click + new agent' : '') + ' \\u2014 the floor picks it up live.</div>';
       return;
     }
-    el.innerHTML = state.agents.map(function (a) {
-      var nowLine;
-      if (a.phase === "running") nowLine = a.task || "working";
-      else if (a.phase === "stalled") nowLine = "STALLED \\u2014 no heartbeat: " + (a.task || "unknown task");
-      else if (a.phase === "disabled") nowLine = "disabled";
-      else if (a.phase === "never") nowLine = "never run";
-      else if (a.phase === "failed") nowLine = "last run failed";
-      else nowLine = "idle";
-      var hbFresh = a.heartbeatAt && (Date.now() - new Date(a.heartbeatAt).getTime()) < 90000;
-      var editable = state.editable ? ' editable" tabindex="0" role="button" title="Edit ' + esc(a.name) + '" data-name="' + esc(a.name) + '"' : '"';
-      return '<div class="strip ' + esc(a.phase) + editable + '>'
-        + '<div class="rail"></div>'
-        + '<div class="who"><div class="name">' + esc(a.name) + '</div><div class="sched">' + esc(a.schedule) + (a.model ? ' \\u00b7 ' + esc(a.model) : '') + '</div></div>'
-        + '<div class="now" title="' + esc(nowLine) + '">' + esc(nowLine) + '</div>'
-        + '<div class="cell hb ' + (a.heartbeatAt ? (hbFresh ? "fresh" : "stale") : "") + '"><span class="u">heartbeat</span><b>' + (a.heartbeatAt ? esc(ago(a.heartbeatAt)) : "\\u2014") + '</b></div>'
-        + '<div class="cell today"><span class="u">today</span><b>' + num(a.runsToday) + '</b> runs \\u00b7 <b>' + num(a.tokensToday) + '</b> tok' + (a.failedToday ? ' \\u00b7 <b style="color:var(--err)">' + num(a.failedToday) + ' failed</b>' : '') + '</div>'
-        + '<div class="cell lastrun"><span class="u">last run</span><b>' + esc(ago(a.lastRunAt)) + '</b></div>'
-        + '</div>';
-    }).join("");
+    el.innerHTML = view === "office"
+      ? '<div class="office">' + state.agents.map(podHtml).join("") + "</div>"
+      : state.agents.map(stripHtml).join("");
+    updateTimes();
   }
+
+  var toggles = document.querySelectorAll(".viewtoggle .btn");
+  function syncToggle() {
+    for (var i = 0; i < toggles.length; i++) {
+      toggles[i].classList.toggle("on", toggles[i].getAttribute("data-view") === view);
+    }
+  }
+  for (var ti = 0; ti < toggles.length; ti++) {
+    toggles[ti].addEventListener("click", function () {
+      view = this.getAttribute("data-view");
+      localStorage.setItem("af-view", view);
+      syncToggle();
+      if (state) renderBoard(true);
+    });
+  }
+  syncToggle();
 
   function renderFeed() {
     var el = document.getElementById("feed");
@@ -464,17 +599,17 @@ export const PAGE_HTML = `<!doctype html>
   }
 
   document.getElementById("board").addEventListener("click", function (ev) {
-    var strip = ev.target.closest(".strip.editable");
-    if (!strip) return;
-    var name = strip.getAttribute("data-name");
+    var item = ev.target.closest(".editable[data-name]");
+    if (!item) return;
+    var name = item.getAttribute("data-name");
     fetch("/api/agent/" + name).then(function (r) { return r.json(); }).then(function (d) {
       if (d.source != null) openEditor(name, d.source, false);
     });
   });
   document.getElementById("board").addEventListener("keydown", function (ev) {
     if (ev.key !== "Enter") return;
-    var strip = ev.target.closest(".strip.editable");
-    if (strip) strip.click();
+    var item = ev.target.closest(".editable[data-name]");
+    if (item) item.click();
   });
   document.getElementById("newagent").addEventListener("click", function () {
     openEditor(null, NEW_TEMPLATE, true);
@@ -502,10 +637,11 @@ export const PAGE_HTML = `<!doctype html>
   });
   document.addEventListener("keydown", function (ev) { if (ev.key === "Escape") closeDrawer(); });
 
-  // clock ticks every second; relative times re-render with it
+  // clock + relative times tick every second; the board itself only
+  // rebuilds when its content changes (keeps animations smooth)
   setInterval(function () {
     document.getElementById("clock").textContent = new Date().toTimeString().slice(0, 8);
-    if (state) renderBoard();
+    updateTimes();
   }, 1000);
 
   function poll() {

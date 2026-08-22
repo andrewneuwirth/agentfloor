@@ -168,7 +168,9 @@ export function startDashboard(opts: DashboardOptions): Promise<DashboardHandle>
       }
       const url = new URL(req.url ?? "/", `http://${hostHeader}`);
       if (url.pathname === "/") {
-        res.writeHead(200, { "content-type": "text/html; charset=utf-8" });
+        // no-store: the page ships inside the server binary, so a stale
+        // cached copy after an upgrade is pure confusion
+        res.writeHead(200, { "content-type": "text/html; charset=utf-8", "cache-control": "no-store" });
         res.end(PAGE_HTML);
         return;
       }
