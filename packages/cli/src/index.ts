@@ -9,6 +9,7 @@
  *   agentfloor status          agents, runs, budgets, jobs, events
  *   agentfloor tell "<text>"   record an operator directive for the fleet
  */
+import "./quiet.js"; // must be first — mutes a transitive dep's noise before it loads
 import { init } from "./commands/init.js";
 import { up } from "./commands/up.js";
 import { run, dryRun } from "./commands/run.js";
